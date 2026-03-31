@@ -9,7 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from pathlib import Path
 
-# ── Config ──────────────────────────────────────────────────────────────────
+# -- Config ------------------------------------------------------------------
 PAGES = {
     "Regional Economic Outlook (REO)": "https://www.imf.org/en/publications/reo",
     "World Economic Outlook (WEO)":    "https://www.imf.org/en/publications/weo",
@@ -21,15 +21,16 @@ PAGES = {
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 SNAPSHOT_DIR.mkdir(exist_ok=True)
 
-GMAIL_USER       = os.environ["GMAIL_USER"]
-GMAIL_APP_PASS   = os.environ["GMAIL_APP_PASSWORD"]
-NOTIFY_EMAIL     = os.environ["NOTIFY_EMAIL"]
+GMAIL_USER     = os.environ["GMAIL_USER"]
+GMAIL_APP_PASS = os.environ["GMAIL_APP_PASSWORD"]
+NOTIFY_EMAIL   = os.environ["NOTIFY_EMAIL"]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; IMFCrawler/1.0)"
 }
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers -----------------------------------------------------------------
+
 def snapshot_path(name: str) -> Path:
     safe = name.replace(" ", "_").replace("/", "-").replace("(", "").replace(")", "")
     return SNAPSHOT_DIR / f"{safe}.json"
@@ -41,11 +42,11 @@ def fetch_page(url: str) -> str:
     return r.text
 
 
-def extract_publications(html: str, url: str) -> list[dict]:
+def extract_publications(html: str, url: str) -> list:
     """
     Extract publication items from an IMF publications page.
     Tries multiple selectors to be robust across page layouts.
-    Returns a list of {title, date, url} dicts.
+    Returns a list of dicts with keys: title, date, url.
     """
     soup = BeautifulSoup(html, "html.parser")
     results = []
@@ -90,7 +91,7 @@ def save_snapshot(path: Path, data):
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def compute_fingerprint(items: list[dict]) -> str:
+def compute_fingerprint(items: list) -> str:
     """Stable fingerprint of a publications list."""
     canonical = json.dumps(
         sorted(items, key=lambda x: (x.get("title", ""), x.get("url", ""))),
@@ -99,7 +100,7 @@ def compute_fingerprint(items: list[dict]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def diff_items(old: list[dict], new: list[dict]) -> list[dict]:
+def diff_items(old: list, new: list) -> list:
     old_urls   = {i["url"] for i in old}
     old_titles = {i["title"] for i in old}
     added = []
@@ -137,24 +138,25 @@ def build_email(changes: dict) -> str:
     return f"""
     <html><body style='font-family:Arial,sans-serif;max-width:700px;margin:auto'>
     <h2 style='background:#003087;color:white;padding:12px 16px;border-radius:6px'>
-        📄 New IMF Reports Detected — {today}
+        New IMF Reports Detected - {today}
     </h2>
     {rows}
     <hr/>
     <p style='color:#888;font-size:12px'>
         Sent by your IMF crawler running on GitHub Actions.<br>
-        Repo: <a href='https://github.com/penugondaz/forbescralws'>penugondaz/forbescralws</a>
+        Repo: https://github.com/penugondaz/forbescralws
     </p>
     </body></html>
     """
 
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# -- Main --------------------------------------------------------------------
+
 def main():
     all_changes = {}
 
     for page_name, url in PAGES.items():
-        print(f"\n🔍 Crawling: {page_name}")
+        print(f"\nCrawling: {page_name}")
         try:
             html  = fetch_page(url)
             items = extract_publications(html, url)
@@ -164,80 +166,44 @@ def main():
             snapshot = load_snapshot(spath)
 
             if snapshot is None:
-                # First run — save baseline, no alert
-                print("   No snapshot yet — saving baseline.")
+                # First run - save baseline, no alert
+                print("   No snapshot yet - saving baseline.")
                 save_snapshot(spath, {"fingerprint": compute_fingerprint(items), "items": items})
                 continue
 
-            old_items   = snapshot.get("items", [])
-            new_fp      = compute_fingerprint(items)
-            old_fp      = snapshot.get("fingerprint", "")
+            old_items = snapshot.get("items", [])
+            new_fp    = compute_fingerprint(items)
+            old_fp    = snapshot.get("fingerprint", "")
 
             if new_fp == old_fp:
-                print("   ✅ No change detected.")
+                print("   No change detected.")
             else:
                 added = diff_items(old_items, items)
-                print(f"   🆕 Change detected! {len(added)} new item(s).")
+                print(f"   Change detected! {len(added)} new item(s).")
                 if added:
                     all_changes[page_name] = added
                 elif items:
-                    # Content changed but we can't identify specific new items
-                    all_changes[page_name] = [{"title": "Page content has changed — possible new publication", "date": "", "url": url}]
+                    # Content changed but cannot identify specific new items
+                    all_changes[page_name] = [{
+                        "title": "Page content has changed - possible new publication",
+                        "date": "",
+                        "url": url
+                    }]
 
                 # Update snapshot
                 save_snapshot(spath, {"fingerprint": new_fp, "items": items})
 
         except Exception as e:
-            print(f"   ❌ Error: {e}")
+            print(f"   Error: {e}")
 
     if all_changes:
-        print(f"\n📧 Sending email alert for {len(all_changes)} page(s)...")
-        subject = f"🆕 New IMF Reports — {', '.join(all_changes.keys())}"
+        print(f"\nSending email alert for {len(all_changes)} page(s)...")
+        subject = f"New IMF Reports - {', '.join(all_changes.keys())}"
         send_email(subject, build_email(all_changes))
         print("   Email sent!")
     else:
-        print("\n✉️  No changes — no email sent.")
+        print("\nNo changes - no email sent.")
 
 
 if __name__ == "__main__":
     main()
-```
-
----
-
-### 📁 File 3: `imf_crawler/snapshots/.gitkeep`
-
-An empty file to ensure the `snapshots/` folder is committed to the repo.
-```
-(empty file)
-```
-
----
-
-### 🔐 GitHub Secrets to Add
-
-Go to your repo → **Settings → Secrets and variables → Actions → New repository secret** and add:
-
-| Secret Name | Value |
-|---|---|
-| `GMAIL_USER` | Your Gmail address (e.g. `you@gmail.com`) |
-| `GMAIL_APP_PASSWORD` | A Gmail **App Password** (not your regular password — see below) |
-| `NOTIFY_EMAIL` | Email to receive alerts (can be same as above) |
-
-**To get a Gmail App Password:**
-1. Go to [myaccount.google.com/security](https://myaccount.google.com/security)
-2. Enable **2-Step Verification** if not already on
-3. Search for "App passwords" → create one for "Mail" → copy the 16-char password
-
----
-
-### How it all works
-```
-GitHub Actions (daily 5PM IST)
-    │
-    ├── Crawls all 5 IMF pages
-    ├── Extracts publication titles + links
-    ├── Compares against saved snapshot in imf_crawler/snapshots/
-    │
-    ├── No change? → Silent exit ✅
-    └── Change found? → Send email with new items → Update snapshot
