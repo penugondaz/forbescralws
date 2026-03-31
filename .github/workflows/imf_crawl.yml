@@ -1,0 +1,40 @@
+name: IMF Publications Crawler
+
+on:
+  schedule:
+    - cron: '30 11 * * *'   # 5:00 PM IST = 11:30 UTC
+  workflow_dispatch:         # Allow manual trigger for testing
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write        # Needed to commit snapshot updates
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run crawler
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+        run: python imf_crawler/crawl.py
+
+      - name: Commit updated snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add imf_crawler/snapshots/
+          git diff --staged --quiet || git commit -m "chore: update IMF snapshots [skip ci]"
+          git push
