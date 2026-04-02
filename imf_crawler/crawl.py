@@ -23,7 +23,6 @@ SNAPSHOT_DIR.mkdir(exist_ok=True)
 
 GMAIL_USER     = os.environ["GMAIL_USER"]
 GMAIL_APP_PASS = os.environ["GMAIL_APP_PASSWORD"]
-NOTIFY_EMAIL   = os.environ["NOTIFY_EMAIL"]
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; IMFCrawler/1.0)"
@@ -110,16 +109,32 @@ def diff_items(old: list, new: list) -> list:
     return added
 
 
+def get_recipients() -> list:
+    """
+    Read NOTIFY_EMAIL from environment.
+    Supports a single address or a comma-separated list.
+    Returns a list of validated email strings.
+    """
+    raw = os.environ.get("NOTIFY_EMAIL", "")
+    recipients = [r.strip() for r in raw.split(",") if r.strip() and "@" in r.strip()]
+    if not recipients:
+        raise ValueError(f"NOTIFY_EMAIL has no valid addresses: {repr(raw)}")
+    return recipients
+
+
 def send_email(subject: str, html_body: str):
+    recipients = get_recipients()
+    print(f"   Sending to: {recipients}")
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = GMAIL_USER
-    msg["To"]      = NOTIFY_EMAIL
+    msg["To"]      = ", ".join(recipients)
     msg.attach(MIMEText(html_body, "html"))
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
         server.login(GMAIL_USER, GMAIL_APP_PASS)
-        server.sendmail(GMAIL_USER, NOTIFY_EMAIL, msg.as_string())
+        server.sendmail(GMAIL_USER, recipients, msg.as_string())
 
 
 def build_email(changes: dict) -> str:
